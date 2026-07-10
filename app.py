@@ -19,13 +19,20 @@ from plotly.subplots import make_subplots
 from datetime import date, timedelta
 from dotenv import load_dotenv
 import torch
+
+# --- STREAMLIT + PYTORCH BUG FIX ---
+try:
+    torch._classes.__path__ = []
+except Exception:
+    pass
+# -----------------------------------
 from torch.utils.data import DataLoader
 import logging
 from sklearn.preprocessing import MinMaxScaler
 
 from data_pipeline import fetch_ohlcv, fetch_fundamentals, align_and_merge
 from features import calculate_technical_indicators, create_target_labels, scale_features
-from models import StockDataset, LSTMModel, train_model, evaluate_model
+from models import StockDataset, LSTMModel, train_model, evaluate_model, train_random_forest
 from backtest import run_backtest, calculate_performance_metrics
 
 # ---------------------------------------------------------------------------
@@ -52,7 +59,7 @@ FEATURE_COLUMNS = [
     "SMA_20", "SMA_50", "EMA_20", "EMA_50",
     "RSI_14", "MACD", "Signal_Line", "MACD_Hist",
     "BB_Upper", "BB_Middle", "BB_Lower",
-    "Vol_20", "Momentum_10", "Daily_Returns",
+    "Vol_20", "Momentum_10", "Daily_Returns", "Sector_Return",
 ]
 
 # ---------------------------------------------------------------------------
@@ -590,7 +597,7 @@ def render_sidebar() -> dict:
                 value=0.001,
                 format_func=lambda x: f"{x:.4f}",
             )
-            horizon = st.slider("Prediction Horizon (days)", 1, 20, 5)
+            horizon = st.slider("Prediction Horizon (days)", 1, 30, 5)
             cls_threshold = st.slider("Classification Threshold", 0.0, 0.05, 0.01, step=0.005)
 
         with st.expander("💰 Backtest Parameters", expanded=False):
@@ -1576,7 +1583,7 @@ def render_screener():
         else:
             return f"color: {C_RED};"
 
-    styled = display_df.style.applymap(
+    styled = display_df.style.map(
         _color_score, subset=["Score"]
     ).format({
         "Price ($)": "${:.2f}",
@@ -1778,10 +1785,21 @@ def run_pipeline(params: dict) -> dict | None:
     msg = f"✅ Training complete — final loss: {history['train_losses'][-1]:.5f}"
     _log_admin(msg, "success")
 
-    # 11 — Evaluate
-    with st.spinner("🔍 Evaluating model …"):
+    # 10.5 — Train Random Forest Ensemble
+    with st.spinner("🌲 Training Random Forest Ensemble …"):
         try:
-            probabilities, actuals = evaluate_model(model, test_loader, device=device)
+            rf_model = train_random_forest(train_ds, n_estimators=100)
+            results["rf_model"] = rf_model
+        except Exception as exc:
+            st.error(f"Random Forest Training failed: {exc}")
+            return None
+
+    # 11 — Evaluate
+    with st.spinner("🔍 Evaluating ensemble model …"):
+        try:
+            probabilities, actuals = evaluate_model(
+                model, test_loader, device=device, rf_model=rf_model, rf_weight=0.5
+            )
         except Exception as exc:
             st.error(f"Evaluation failed: {exc}")
             return None

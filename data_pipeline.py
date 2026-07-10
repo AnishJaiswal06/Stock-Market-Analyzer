@@ -76,6 +76,24 @@ def retry(max_attempts: int = 3, backoff_factor: float = 0.5):
     return decorator
 
 
+SECTOR_ETFS = {
+    "Technology": "XLK",
+    "Health Care": "XLV",
+    "Financial Services": "XLF",
+    "Financials": "XLF",
+    "Energy": "XLE",
+    "Basic Materials": "XLB",
+    "Materials": "XLB",
+    "Industrials": "XLI",
+    "Consumer Cyclical": "XLY",
+    "Consumer Discretionary": "XLY",
+    "Consumer Defensive": "XLP",
+    "Consumer Staples": "XLP",
+    "Utilities": "XLU",
+    "Real Estate": "XLRE",
+    "Communication Services": "XLC"
+}
+
 # ═══════════════════════════════════════════════════════════════════════════
 # fetch_ohlcv
 # ═══════════════════════════════════════════════════════════════════════════
@@ -158,11 +176,46 @@ def fetch_ohlcv(
             data.index.name = "Date"
 
             logger.info(
-                "Successfully retrieved OHLCV data — %d rows, %s → %s.",
-                len(data),
-                data.index.min().date(),
-                data.index.max().date(),
+                "Successfully fetched %d rows for %s. Now fetching sector data...",
+                len(data), ticker,
             )
+
+            # Fetch sector performance to use as a model feature
+            try:
+                info = yfinance.Ticker(ticker).info
+                sector = info.get("sector", "")
+                bench_ticker = "^GSPC" # Default to S&P 500
+                
+                for key, etf in SECTOR_ETFS.items():
+                    if key.lower() in sector.lower():
+                        bench_ticker = etf
+                        break
+                
+                logger.info("Using benchmark %s for sector '%s'", bench_ticker, sector)
+                bench_data = yfinance.download(
+                    bench_ticker,
+                    start=str(start_date),
+                    end=str(end_date),
+                    progress=False,
+                    timeout=15,
+                )
+                
+                if not bench_data.empty:
+                    if isinstance(bench_data.columns, pd.MultiIndex):
+                        bench_data.columns = bench_data.columns.get_level_values(0)
+                    if "Close" in bench_data.columns:
+                        bench_ret = bench_data["Close"].pct_change() * 100
+                        bench_ret.name = "Sector_Return"
+                        data = data.join(bench_ret, how="left")
+                        data["Sector_Return"] = data["Sector_Return"].fillna(0)
+                    else:
+                        data["Sector_Return"] = 0.0
+                else:
+                    data["Sector_Return"] = 0.0
+            except Exception as e:
+                logger.warning("Failed to fetch sector data for %s: %s", ticker, e)
+                data["Sector_Return"] = 0.0
+
             return data
 
         except Exception as e:
@@ -188,7 +241,13 @@ def fetch_ohlcv(
 
 def _build_headers(user_agent_email: str) -> Dict[str, str]:
     """Return the ``User-Agent`` header required by the SEC EDGAR API."""
-    return {"User-Agent": f"StockAnalyzer {user_agent_email}"}
+    email = user_agent_email.strip()
+    if not email:
+        email = "contact@example.com"
+    return {
+        "User-Agent": f"StockAnalyzer {email}",
+        "Accept-Encoding": "gzip, deflate"
+    }
 
 
 def _resolve_cik(ticker: str, headers: Dict[str, str]) -> Optional[str]:

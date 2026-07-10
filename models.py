@@ -12,11 +12,22 @@ consuming scaled feature arrays from features.py and producing predictions consu
 """
 
 import logging
+import copy
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
+from sklearn.ensemble import RandomForestClassifier
 from torch import nn
+
+# --- STREAMLIT + PYTORCH BUG FIX ---
+# Streamlit's file watcher incorrectly triggers __getattr__ on torch._classes
+# when looking for __path__._path. Setting it to an empty list bypasses this.
+try:
+    torch._classes.__path__ = []
+except Exception:
+    pass
+# -----------------------------------
 from torch.utils.data import DataLoader, Dataset
 
 logger = logging.getLogger(__name__)
@@ -196,6 +207,8 @@ def train_model(
     val_loader: Optional[DataLoader] = None,
     epochs: int = 15,
     lr: float = 0.001,
+    weight_decay: float = 1e-4,
+    early_stopping_patience: int = 5,
     device: str = "cpu",
 ) -> Dict[str, List[float]]:
     """Train the model using Binary Cross-Entropy loss and the Adam optimiser.
@@ -207,6 +220,8 @@ def train_model(
             validation loss is computed at the end of every epoch.
         epochs: Number of full passes through *train_loader*.
         lr: Learning rate for the Adam optimiser.
+        weight_decay: L2 regularization penalty to prevent overfitting.
+        early_stopping_patience: Epochs to wait for val_loss improvement before stopping.
         device: PyTorch device string (``'cpu'`` or ``'cuda'``).
 
     Returns:
@@ -216,20 +231,25 @@ def train_model(
     """
     model = model.to(device)
     criterion = nn.BCELoss()
-    optimiser = torch.optim.Adam(model.parameters(), lr=lr)
+    optimiser = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     train_losses: List[float] = []
     val_losses: List[float] = []
 
     logger.info(
-        "Training started — epochs=%d, lr=%.5f, device=%s, "
+        "Training started — epochs=%d, lr=%.5f, wd=%s, device=%s, "
         "train_batches=%d, val_batches=%s",
         epochs,
         lr,
+        weight_decay,
         device,
         len(train_loader),
         len(val_loader) if val_loader is not None else "N/A",
     )
+
+    best_val_loss = float('inf')
+    patience_counter = 0
+    best_model_state = None
 
     for epoch in range(1, epochs + 1):
         # ----- Training phase -----
@@ -290,6 +310,23 @@ def train_model(
                 mean_train_loss,
             )
 
+        # ----- Early Stopping -----
+        if mean_val_loss is not None:
+            if mean_val_loss < best_val_loss:
+                best_val_loss = mean_val_loss
+                patience_counter = 0
+                best_model_state = copy.deepcopy(model.state_dict())
+            else:
+                patience_counter += 1
+                if patience_counter >= early_stopping_patience:
+                    logger.info("Early stopping triggered at epoch %d. Best val_loss: %.6f", epoch, best_val_loss)
+                    break
+
+    # Restore best weights if validation was used
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
+        logger.info("Restored best model weights with val_loss=%.6f", best_val_loss)
+
     logger.info("Training complete.")
     return {"train_losses": train_losses, "val_losses": val_losses}
 
@@ -302,6 +339,8 @@ def evaluate_model(
     model: nn.Module,
     test_loader: DataLoader,
     device: str = "cpu",
+    rf_model: Optional[RandomForestClassifier] = None,
+    rf_weight: float = 0.5,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Run inference on a test set and collect predictions vs ground truth.
 
@@ -309,6 +348,8 @@ def evaluate_model(
         model: A trained ``nn.Module``.
         test_loader: ``DataLoader`` yielding ``(X, y)`` test batches.
         device: PyTorch device string.
+        rf_model: Optional trained RandomForestClassifier for ensembling.
+        rf_weight: Weight applied to the RF model's probabilities (0.0 to 1.0).
 
     Returns:
         A tuple ``(probabilities, actuals)`` where both are 1-D NumPy arrays.
@@ -326,18 +367,48 @@ def evaluate_model(
     with torch.no_grad():
         for batch_X, batch_y in test_loader:
             batch_X = batch_X.to(device)
-            preds = model(batch_X).squeeze(-1)  # (batch,)
+            lstm_preds = model(batch_X).squeeze(-1).cpu().numpy()  # (batch,)
+            
+            # Incorporate Random Forest ensemble if provided
+            if rf_model is not None:
+                # Extract the last timestep feature vector for RF
+                X_rf = batch_X[:, -1, :].cpu().numpy()
+                rf_preds = rf_model.predict_proba(X_rf)[:, 1]
+                preds = (lstm_preds * (1.0 - rf_weight)) + (rf_preds * rf_weight)
+            else:
+                preds = lstm_preds
 
-            all_probs.append(preds.cpu().numpy())
+            all_probs.append(preds)
             all_actuals.append(batch_y.numpy())
 
     probabilities = np.concatenate(all_probs)    # 1-D
-    actuals = np.concatenate(all_actuals)         # 1-D
+    actuals = np.concatenate(all_actuals)        # 1-D
 
-    logger.info(
-        "Evaluation complete — samples=%d, mean_prob=%.4f",
-        len(probabilities),
-        float(probabilities.mean()),
-    )
-
+    logger.info("Evaluation complete — samples=%d, mean_prob=%.4f", len(probabilities), probabilities.mean())
     return probabilities, actuals
+
+
+def train_random_forest(
+    dataset: StockDataset,
+    n_estimators: int = 100,
+    max_depth: int = 5,
+    random_state: int = 42
+) -> RandomForestClassifier:
+    """Train a Random Forest classifier using the dataset's tabular features.
+    
+    Extracts the features corresponding to the end of each LSTM sequence window.
+    """
+    valid_len = len(dataset)
+    X = dataset.features[dataset.sequence_length : dataset.sequence_length + valid_len]
+    y = dataset.labels[dataset.sequence_length : dataset.sequence_length + valid_len]
+    
+    rf = RandomForestClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        random_state=random_state,
+        n_jobs=-1
+    )
+    logger.info("Training Random Forest ensemble model (n_estimators=%d)...", n_estimators)
+    rf.fit(X, y)
+    logger.info("Random Forest training complete.")
+    return rf
