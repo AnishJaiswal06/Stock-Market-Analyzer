@@ -5,8 +5,8 @@ phases:
     commands:
       - echo Logging in to Amazon ECR...
       - aws --version
-      - AWS_DEFAULT_REGION=us-west-2 # Change to your preferred AWS region
-      - REPOSITORY_URI=YOUR_AWS_ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/your-ecr-repo-name
+      - AWS_DEFAULT_REGION=us-east-2
+      - REPOSITORY_URI=464542126255.dkr.ecr.us-east-2.amazonaws.com/stock-market-analyzer
       - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $REPOSITORY_URI
       - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | head -c 7)
       - IMAGE_TAG=${COMMIT_HASH:-latest}
@@ -23,7 +23,7 @@ phases:
       - docker push $REPOSITORY_URI:latest
       - docker push $REPOSITORY_URI:$IMAGE_TAG
       - echo Writing image definitions file...
-      - printf '[{"name":"stock-analyzer-container","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
+      - printf '[{"name":"stock-analyzer","imageUri":"%s"}]' $REPOSITORY_URI:$IMAGE_TAG > imagedefinitions.json
 
 artifacts:
   files: imagedefinitions.json

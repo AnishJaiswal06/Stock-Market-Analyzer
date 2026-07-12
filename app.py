@@ -65,12 +65,12 @@ FEATURE_COLUMNS = [
 # ---------------------------------------------------------------------------
 # Color palette — clean financial light theme
 # ---------------------------------------------------------------------------
-C_NAVY      = "#1e293b"          # sidebar / dark accents (slate-800)
-C_BLUE      = "#2563eb"          # primary accent (blue-600)
-C_EMERALD   = "#16a34a"          # positive / green-600
+C_NAVY      = "#0f172a"          # sidebar / dark accents (slate-900)
+C_BLUE      = "#4f46e5"          # primary accent (indigo-600)
+C_EMERALD   = "#10b981"          # positive / emerald-500
 C_AMBER     = "#d97706"          # warning / amber-600
 C_PURPLE    = "#7c3aed"          # secondary accent (violet-600)
-C_RED       = "#dc2626"          # negative / red-600
+C_RED       = "#ef4444"          # negative / red-500
 C_SURFACE   = "#ffffff"          # card surface
 C_BORDER    = "#e2e8f0"          # subtle border (slate-200)
 C_TEXT      = "#0f172a"          # primary text (slate-900)
@@ -83,7 +83,7 @@ C_ORANGE    = "#ea580c"          # chart accent orange-600
 # ---------------------------------------------------------------------------
 _CSS = f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
 /* ---------- root overrides ---------- */
 :root {{
@@ -102,7 +102,7 @@ _CSS = f"""
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
     background: {C_BG} !important;
     color: var(--text-primary);
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
 }}
 
 /* ---- sidebar ---- */
@@ -144,7 +144,7 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
 /* ---- headings ---- */
 h1, h2, h3, h4 {{
     color: {C_TEXT} !important;
-    font-family: 'Inter', sans-serif !important;
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
     font-weight: 700 !important;
 }}
 
@@ -154,12 +154,12 @@ h1, h2, h3, h4 {{
     border: 1px solid {C_BORDER};
     border-radius: 12px;
     padding: 20px 24px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 4px 20px -2px rgba(79, 70, 229, 0.1);
+    transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
 }}
 [data-testid="stMetric"]:hover {{
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(0,0,0,0.08);
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px -5px rgba(79, 70, 229, 0.15), 0 8px 10px -6px rgba(79, 70, 229, 0.1);
 }}
 [data-testid="stMetric"] label {{
     color: {C_TEXT_DIM} !important;
@@ -213,35 +213,36 @@ h1, h2, h3, h4 {{
 
 /* ---- buttons ---- */
 .stButton > button {{
-    background: {C_BLUE};
+    background: linear-gradient(to right, {C_BLUE}, {C_PURPLE});
     color: #ffffff;
-    font-family: 'Inter', sans-serif;
+    font-family: 'Plus Jakarta Sans', sans-serif;
     font-weight: 600;
     border: none;
     border-radius: 8px;
     padding: 12px 28px;
-    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.3);
+    transition: all 0.2s ease-out;
     letter-spacing: 0.02em;
 }}
 .stButton > button:hover {{
-    background: #1d4ed8;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 16px rgba(37,99,235,0.25);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px 0 rgba(79, 70, 229, 0.4);
 }}
 .stButton > button:active {{
     transform: translateY(0);
+    box-shadow: 0 2px 8px 0 rgba(79, 70, 229, 0.3);
 }}
 
 /* ---- expander (main area) ---- */
 [data-testid="stExpander"] {{
     background: {C_SURFACE};
     border: 1px solid {C_BORDER};
-    border-radius: 10px;
+    border-radius: 12px;
 }}
 
 /* ---- dataframe / table — minimalist ---- */
 .stDataFrame {{
-    border-radius: 10px;
+    border-radius: 12px;
     overflow: hidden;
     border: 1px solid {C_BORDER};
 }}
@@ -339,8 +340,8 @@ h1, h2, h3, h4 {{
     width: 22px;
     height: 22px;
     border-radius: 50%;
-    background: rgba(37, 99, 235, 0.08);
-    border: 1px solid rgba(37, 99, 235, 0.2);
+    background: rgba(79, 70, 229, 0.08);
+    border: 1px solid rgba(79, 70, 229, 0.2);
     color: {C_BLUE};
     font-size: 0.72rem;
     font-weight: 700;

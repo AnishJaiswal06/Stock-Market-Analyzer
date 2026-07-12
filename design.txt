@@ -1,0 +1,83 @@
+<role>
+You are an expert frontend engineer, UI/UX designer, visual design specialist, and typography expert. Your goal is to completely reskin the provided Stock Market Analyzer UI using the "Corporate Trust" design system defined below.
+
+Review the current codebase (specifically the CSS variables, layout primitives, and component architecture). Ensure your modifications are visually consistent, maintainable, and idiomatic to the existing tech stack.
+
+When writing code:
+- Centralize these new design tokens by updating the existing CSS `:root` variables to match the Corporate Trust palette and colored shadows.
+- Map the design concepts (like `shadow-[...]`, `rounded-xl`, and gradient backgrounds) into the actual CSS classes used in the project.
+- Preserve all existing chart data, stock logic, and layout structures; ONLY change the visual styling, spacing, typography, and colors.
+- Maintain or improve accessibility.
+- Leave the codebase in a cleaner, more coherent state.
+- Ensure layouts are responsive and usable across devices.
+</role>
+
+<design-system>
+# Design Style: Corporate Trust
+
+## 1. Design Philosophy
+This style embodies the **modern enterprise SaaS aesthetic** — professional yet approachable, sophisticated yet friendly. 
+
+**Core Principles:**
+- **Trustworthy Yet Vibrant**: Establishes credibility through clean structure and professional typography while maintaining visual energy through vibrant gradients and colorful accents.
+- **Dimensional Depth**: Uses isometric perspectives, soft colored shadows, and subtle 3D transforms.
+- **Refined Elegance**: Every element is polished with attention to micro-interactions and smooth transitions.
+- **Purposeful Gradients**: Indigo-to-violet gradients serve as the visual signature.
+
+## 2. Design Token System (Update CSS variables with these)
+
+### Colors (Light Mode)
+*   **Background**: `#F8FAFC` (Slate 50) - A very subtle cool grey/white base.
+*   **Foreground (Surface/Cards)**: `#FFFFFF` (White) - For cards and raised elements.
+*   **Primary**: `#4F46E5` (Indigo 600) - The core brand color. Vibrant blue-purple.
+*   **Secondary**: `#7C3AED` (Violet 600) - For gradients and accents.
+*   **Text Main**: `#0F172A` (Slate 900) - High contrast, sharp.
+*   **Text Muted**: `#64748B` (Slate 500) - For supporting text.
+*   **Accent/Success (Gainers)**: `#10B981` (Emerald 500) - For positive indicators.
+*   **Negative (Losers)**: `#EF4444` (Red 500) - For negative indicators.
+*   **Border**: `#E2E8F0` (Slate 200) - Subtle separation.
+
+### Typography
+*   **Font Family**: `Plus Jakarta Sans` — Geometric sans-serif with friendly rounded terminals.
+
+### Radius & Border
+*   **Radius**: `12px` (`rounded-xl`) for cards, `8px` (`rounded-lg`) for inputs. Buttons are `rounded-full` or `rounded-lg`.
+*   **Borders**: Thin, 1px borders using `#E2E8F0`.
+
+### Shadows & Effects (Use Colored Shadows)
+*   **Default Card Shadow**: `0 4px 20px -2px rgba(79, 70, 229, 0.1)` — Soft blue-tinted base elevation.
+*   **Hover Card Shadow**: `0 10px 25px -5px rgba(79, 70, 229, 0.15), 0 8px 10px -6px rgba(79, 70, 229, 0.1)`
+*   **Button Shadow**: `0 4px 14px 0 rgba(79, 70, 229, 0.3)`
+*   **Primary Gradient**: `linear-gradient(to right, #4F46E5, #7C3AED)`
+
+## 3. Component Stylings
+
+### Buttons & Badges
+*   **Primary Action / Selected State**: Gradient background (Indigo to Violet). White text. Button Shadow applied. Transition: Lift (`-translate-y-0.5`) and increase shadow on hover.
+*   **Badges**: Icon/Text in `text-indigo-600` on `bg-indigo-50` container.
+
+### Cards & Panels
+*   **Base**: White background (`#FFFFFF`), `12px` border radius, `1px solid #E2E8F0` border, Default Card Shadow.
+*   **Hover/Active**: Slight lift (`transform: translateY(-4px)`) and increased shadow intensity.
+
+### Interactive Charts & Tables
+*   **Tables**: Clean layout with `#E2E8F0` borders separating rows.
+*   **Charts**: Update chart lines/fills to utilize the Indigo and Violet core colors, alongside Emerald for positive trends and Red for negative trends.
+
+## 4. Non-Generic Bold Choices (Implement where applicable)
+*   **Hover Transforms**: Apply subtle 3D movement on interaction for cards (e.g., `hover:rotate-x-[2deg] hover:rotate-y-[-8deg]`).
+*   **Gradients**: Use the primary Indigo-to-Violet gradient on primary metrics, active sidebar links, or the main call-to-action buttons.
+*   **Micro-Interactions**: Smooth `transition-all duration-200 ease-out` on all interactive elements.
+
+</design-system>
+
+<task>
+Apply the "Corporate Trust" design system to the existing Stock Market Analyzer code. 
+1. Update the root CSS variables (colors, backgrounds, text colors, and font-family) to match the new palette. Ensure the background is Slate 50 and panels are White.
+2. Replace existing box-shadows with the specific Indigo-tinted colored shadows.
+3. Update border radii on the main widgets, charts, and tables to 12px.
+4. Style the active sidebar elements and primary buttons using the Indigo-to-Violet gradient.
+5. Apply the subtle hover lift (`translateY`) and shadow enhancements to the stock cards and interactive elements.
+6. DO NOT alter the underlying stock data, logic, or text labels—only the CSS/styling.
+Please output the updated code.
+</task>
