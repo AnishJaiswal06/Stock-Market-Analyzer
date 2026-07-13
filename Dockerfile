@@ -11,6 +11,7 @@ WORKDIR /app
 # Install system dependencies required for compilation (if any)
 RUN apt-get update && apt-get install -y \
     build-essential \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container
