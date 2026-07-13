@@ -5,6 +5,13 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
+# Force PyTorch and Math libraries to respect the 4 vCPU limit
+ENV OMP_NUM_THREADS=4
+ENV OPENBLAS_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+ENV VECLIB_MAXIMUM_THREADS=4
+ENV NUMEXPR_NUM_THREADS=4
+
 # Set the working directory in the container
 WORKDIR /app
 
