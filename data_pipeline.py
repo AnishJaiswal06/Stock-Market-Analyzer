@@ -511,11 +511,13 @@ def align_and_merge(
     ohlcv = ohlcv_df.copy()
     ohlcv.index = pd.to_datetime(ohlcv.index)
     ohlcv = ohlcv.sort_index()
-    ohlcv["_merge_date"] = ohlcv.index
+    # Force nanosecond precision alignment
+    ohlcv["_merge_date"] = pd.to_datetime(ohlcv.index).tz_localize(None).astype('datetime64[ns]')
 
     # Prepare fundamentals side: sorted datetime column
     fund = fundamentals_df.copy()
-    fund["end_date"] = pd.to_datetime(fund["end_date"])
+    # Force nanosecond precision alignment
+    fund["end_date"] = pd.to_datetime(fund["end_date"]).dt.tz_localize(None).astype('datetime64[ns]')
     fund = fund.sort_values("end_date").reset_index(drop=True)
 
     # Asof merge: for each trading day, pick the most recent fundamental row
