@@ -28,7 +28,7 @@ COPY . .
 EXPOSE 8501
 
 # Add healthcheck to ensure the container is running properly
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health || exit 1
+HEALTHCHECK CMD wget --no-verbose --tries=1 --spider http://localhost:8501/_stcore/health || exit 1
 
 # Command to run the application
 ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0"]
