@@ -31,4 +31,5 @@ EXPOSE 8501
 HEALTHCHECK CMD wget --no-verbose --tries=1 --spider http://localhost:8501/_stcore/health || exit 1
 
 # Command to run the application
-ENTRYPOINT ["streamlit", "run", "app.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.enableCORS=false", "--server.enableXsrfProtection=false"]
+# Update No-IP DNS securely, then start Streamlit
+ENTRYPOINT wget -qO- --http-user="$NOIP_USER" --http-password="$NOIP_PASS" "https://dynupdate.no-ip.com/nic/update?hostname=stockanalyzer.ddns.net" && streamlit run app.py --server.port=8501 --server.address=0.0.0.0 --server.enableCORS=false --server.enableXsrfProtection=false
