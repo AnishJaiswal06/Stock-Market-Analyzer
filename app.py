@@ -192,22 +192,23 @@ h1, h2, h3, h4 {{
     padding-bottom: 12px;
 }}
 .stTabs [data-baseweb="tab"] {{
-    background: {C_BORDER};
-    border: none;
+    background: linear-gradient(to right, #e0e7ff, #f3e8ff) !important;
+    border: 1px solid rgba(124, 58, 237, 0.2) !important;
     border-radius: 8px;
-    color: {C_TEXT};
+    color: #000000 !important;
     font-weight: 600;
     padding: 10px 24px;
     transition: all 0.2s ease-out;
 }}
 .stTabs [data-baseweb="tab"]:hover {{
-    background: #cbd5e1;
-    color: {C_NAVY};
+    background: linear-gradient(to right, #c7d2fe, #e9d5ff) !important;
+    color: #000000 !important;
+    transform: translateY(-1px);
 }}
 .stTabs [aria-selected="true"] {{
     background: linear-gradient(to right, {C_BLUE}, {C_PURPLE}) !important;
     border-bottom: none !important;
-    color: #ffffff !important;
+    color: #000000 !important;
     font-weight: 700;
     box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.3);
     transform: translateY(-1px);
