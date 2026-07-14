@@ -124,14 +124,19 @@ html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {{
 /* sidebar inputs */
 [data-testid="stSidebar"] .stTextInput > div > div > input,
 [data-testid="stSidebar"] .stDateInput > div > div > input,
-[data-testid="stSidebar"] .stNumberInput > div > div > input {{
-    background: rgba(255,255,255,0.06) !important;
+[data-testid="stSidebar"] .stNumberInput > div > div > input,
+[data-testid="stSidebar"] [data-baseweb="input"],
+[data-testid="stSidebar"] [data-baseweb="base-input"] {{
+    background: #000000 !important;
+    background-color: #000000 !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     color: #f1f5f9 !important;
     border-radius: 8px !important;
 }}
-[data-testid="stSidebar"] .stSelectbox > div > div {{
-    background: rgba(255,255,255,0.06) !important;
+[data-testid="stSidebar"] .stSelectbox > div > div,
+[data-testid="stSidebar"] [data-baseweb="select"] {{
+    background: #000000 !important;
+    background-color: #000000 !important;
     border: 1px solid rgba(255,255,255,0.12) !important;
     border-radius: 8px !important;
 }}
@@ -1663,9 +1668,12 @@ def run_pipeline(params: dict) -> dict | None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     results: dict = {}
     st.session_state.admin_logs = []  # Clear previous logs
+    
+    progress_bar = st.progress(0, text="0% - Initializing pipeline...")
 
     # 1 — Fetch OHLCV
-    with st.spinner("📡 Fetching OHLCV data …"):
+    progress_bar.progress(10, text="10% - 📡 Fetching OHLCV data …")
+    if True:
         ohlcv_df = _cached_ohlcv(params["ticker"], params["start_date"], params["end_date"])
     if ohlcv_df is None or ohlcv_df.empty:
         st.error("Failed to fetch OHLCV data. Check the ticker and date range.")
@@ -1675,7 +1683,8 @@ def run_pipeline(params: dict) -> dict | None:
     _log_admin(msg, "success")
 
     # 2 — Fetch fundamentals
-    with st.spinner("📋 Fetching fundamental data …"):
+    progress_bar.progress(20, text="20% - 📋 Fetching fundamental data …")
+    if True:
         fund_df = _cached_fundamentals(params["ticker"], params["sec_email"])
     results["fund"] = fund_df
     if fund_df is not None:
@@ -1685,7 +1694,8 @@ def run_pipeline(params: dict) -> dict | None:
         _log_admin(msg, "warning")
 
     # 3 — Merge
-    with st.spinner("🔗 Merging data …"):
+    progress_bar.progress(30, text="30% - 🔗 Merging data …")
+    if True:
         try:
             merged = align_and_merge(ohlcv_df, fund_df)
         except Exception as exc:
@@ -1693,7 +1703,8 @@ def run_pipeline(params: dict) -> dict | None:
             return None
 
     # 4 — Indicators
-    with st.spinner("📐 Calculating technical indicators …"):
+    progress_bar.progress(40, text="40% - 📐 Calculating technical indicators …")
+    if True:
         try:
             df = calculate_technical_indicators(merged)
         except Exception as exc:
@@ -1702,7 +1713,8 @@ def run_pipeline(params: dict) -> dict | None:
     results["df_indicators"] = df
 
     # 5 — Labels
-    with st.spinner("🏷 Creating target labels …"):
+    progress_bar.progress(50, text="50% - 🏷 Creating target labels …")
+    if True:
         try:
             labels = create_target_labels(
                 df,
@@ -1732,7 +1744,8 @@ def run_pipeline(params: dict) -> dict | None:
     _log_admin(msg, "info")
 
     # 8 — Scale features
-    with st.spinner("⚖ Scaling features …"):
+    progress_bar.progress(60, text="60% - ⚖ Scaling features …")
+    if True:
         feat_cols = [c for c in FEATURE_COLUMNS if c in df.columns]
         try:
             scaled_train, scaled_test, scaler = scale_features(df, train_end, feat_cols)
@@ -1776,7 +1789,8 @@ def run_pipeline(params: dict) -> dict | None:
         dropout=params["dropout"],
     ).to(device)
 
-    with st.spinner(f"🧠 Training LSTM ({params['epochs']} epochs) …"):
+    progress_bar.progress(70, text=f"70% - 🧠 Training LSTM ({params['epochs']} epochs) …")
+    if True:
         try:
             history = train_model(
                 model, train_loader, val_loader=val_loader,
@@ -1790,7 +1804,8 @@ def run_pipeline(params: dict) -> dict | None:
     _log_admin(msg, "success")
 
     # 10.5 — Train Random Forest Ensemble
-    with st.spinner("🌲 Training Random Forest Ensemble …"):
+    progress_bar.progress(85, text="85% - 🌲 Training Random Forest Ensemble …")
+    if True:
         try:
             rf_model = train_random_forest(train_ds, n_estimators=100)
             results["rf_model"] = rf_model
@@ -1799,7 +1814,8 @@ def run_pipeline(params: dict) -> dict | None:
             return None
 
     # 11 — Evaluate
-    with st.spinner("🔍 Evaluating ensemble model …"):
+    progress_bar.progress(90, text="90% - 🔍 Evaluating ensemble model …")
+    if True:
         try:
             probabilities, actuals = evaluate_model(
                 model, test_loader, device=device, rf_model=rf_model, rf_weight=0.5
@@ -1812,7 +1828,8 @@ def run_pipeline(params: dict) -> dict | None:
     results["model"] = model
 
     # 12 — Backtest
-    with st.spinner("📈 Running backtest …"):
+    progress_bar.progress(95, text="95% - 📈 Running backtest …")
+    if True:
         test_df = df.iloc[train_end:]
         bt_start = seq_len
         bt_close = test_df["Close"].iloc[bt_start: bt_start + len(probabilities)]
@@ -1841,6 +1858,8 @@ def run_pipeline(params: dict) -> dict | None:
     msg = "✅ Backtest complete!"
     _log_admin(msg, "success")
 
+    progress_bar.progress(100, text="100% - ✅ Analysis Complete!")
+    
     return results
 
 
