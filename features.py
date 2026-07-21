@@ -124,6 +124,34 @@ def calculate_technical_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # ── Daily Returns ──────────────────────────────────────────────────
     out["Daily_Returns"] = daily_ret
 
+    # ── ATR (Average True Range, 14-period) ────────────────────────────
+    high_low = out["High"] - out["Low"]
+    high_close = (out["High"] - close.shift(1)).abs()
+    low_close = (out["Low"] - close.shift(1)).abs()
+    true_range = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    out["ATR_14"] = true_range.ewm(span=14, adjust=False).mean()
+    logger.info("ATR calculation complete.")
+
+    # ── OBV (On-Balance Volume) ────────────────────────────────────────
+    obv_sign = np.where(close > close.shift(1), 1, np.where(close < close.shift(1), -1, 0))
+    out["OBV"] = (out["Volume"] * obv_sign).cumsum()
+    logger.info("OBV calculation complete.")
+
+    # ── ROC (Rate of Change, 10-period) ────────────────────────────────
+    out["ROC_10"] = (close - close.shift(10)) / close.shift(10) * 100
+    logger.info("ROC calculation complete.")
+
+    # ── Stochastic Oscillator (%K, %D — 14-period) ────────────────────
+    low_14 = out["Low"].rolling(window=14).min()
+    high_14 = out["High"].rolling(window=14).max()
+    out["Stoch_K"] = 100 * (close - low_14) / (high_14 - low_14)
+    out["Stoch_D"] = out["Stoch_K"].rolling(window=3).mean()
+    logger.info("Stochastic Oscillator calculation complete.")
+
+    # ── VWAP proxy (cumulative price*volume / cumulative volume) ───────
+    out["VWAP"] = (close * out["Volume"]).cumsum() / out["Volume"].cumsum()
+    logger.info("VWAP calculation complete.")
+
     logger.info(
         "Technical indicator calculation finished. "
         "DataFrame shape: %s, new columns: %d.",

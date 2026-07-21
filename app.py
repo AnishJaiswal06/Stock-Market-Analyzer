@@ -29,11 +29,16 @@ except Exception:
 from torch.utils.data import DataLoader
 import logging
 from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import (precision_score, recall_score, f1_score,
+                             roc_auc_score, confusion_matrix)
 
 from data_pipeline import fetch_ohlcv, fetch_fundamentals, align_and_merge
 from features import calculate_technical_indicators, create_target_labels, scale_features
-from models import StockDataset, LSTMModel, train_model, evaluate_model, train_random_forest
+from models import (StockDataset, LSTMModel, train_model, evaluate_model,
+                    train_random_forest, train_gradient_boosting,
+                    compute_probability_bounds, normalize_probabilities)
 from backtest import run_backtest, calculate_performance_metrics
+from persistence import save_artifacts, load_artifacts
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -60,6 +65,7 @@ FEATURE_COLUMNS = [
     "RSI_14", "MACD", "Signal_Line", "MACD_Hist",
     "BB_Upper", "BB_Middle", "BB_Lower",
     "Vol_20", "Momentum_10", "Daily_Returns", "Sector_Return",
+    "ATR_14", "OBV", "ROC_10", "Stoch_K", "Stoch_D", "VWAP",
 ]
 
 # ---------------------------------------------------------------------------
@@ -189,34 +195,174 @@ h1, h2, h3, h4 {{
     font-weight: 600 !important;
 }}
 
-/* ---- tabs ---- */
+/* ---- chrome-style browser tabs ---- */
+:root {{
+    --chrome-bg: #dee1e6;
+    --tab-inactive: #e7eaed;
+    --tab-hover: #f1f3f4;
+}}
+.stTabs {{
+    margin-bottom: 0;
+}}
+/* The toolbar background */
 .stTabs [data-baseweb="tab-list"] {{
-    gap: 8px;
-    background: transparent;
+    gap: 0 !important;
+    background: var(--chrome-bg) !important;
+    border-radius: 8px 8px 0 0;
+    padding: 8px 30px 0 8px !important; /* Extra padding on right for the + button */
     border-bottom: none;
-    padding-bottom: 12px;
+    display: flex;
+    align-items: flex-end;
+    margin-bottom: -1px;
+    position: relative;
+    z-index: 1;
+    width: 100%;
 }}
+/* The "+" button placeholder */
+.stTabs [data-baseweb="tab-list"]::after {{
+    content: "+";
+    position: absolute;
+    right: 12px;
+    bottom: 4px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    font-weight: 300;
+    color: {C_TEXT_DIM};
+    line-height: 28px;
+    text-align: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    z-index: 4;
+}}
+.stTabs [data-baseweb="tab-list"]:hover::after {{
+    background-color: rgba(0,0,0,0.05);
+}}
+/* Custom line below the inactive tabs to match the border */
+.stTabs [data-baseweb="tab-list"]::before {{
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background-color: {C_BORDER};
+    z-index: 2; /* Below active tab (3) but above inactive tabs (1) */
+}}
+
+/* Base tab styling */
 .stTabs [data-baseweb="tab"] {{
-    background: linear-gradient(to right, #e0e7ff, #f3e8ff) !important;
-    border: 1px solid rgba(124, 58, 237, 0.2) !important;
-    border-radius: 8px;
-    color: #000000 !important;
-    font-weight: 600;
-    padding: 10px 24px;
-    transition: all 0.2s ease-out;
+    position: relative;
+    /* Favicon placeholder using background-image */
+    background-image: linear-gradient({C_BLUE}, {C_BLUE}) !important;
+    background-size: 14px 14px !important;
+    background-repeat: no-repeat !important;
+    background-position: 16px center !important;
+    background-color: transparent !important;
+    
+    border: none !important;
+    color: {C_TEXT_DIM} !important;
+    font-weight: 500;
+    padding: 0 32px 0 38px !important; /* space for favicon and close button */
+    margin-left: -14px !important; /* overlap tabs */
+    z-index: 1;
+    transition: color 0.15s ease;
+    height: 38px;
+    line-height: 38px;
+    max-width: 220px;
+    min-width: 140px;
+    
+    /* Truncation */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }}
-.stTabs [data-baseweb="tab"]:hover {{
-    background: linear-gradient(to right, #c7d2fe, #e9d5ff) !important;
-    color: #000000 !important;
-    transform: translateY(-1px);
+.stTabs [data-baseweb="tab"]:first-child {{
+    margin-left: 0 !important;
 }}
+
+/* The trapezoid shape */
+.stTabs [data-baseweb="tab"]::before {{
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: var(--tab-inactive);
+    /* Chrome-like angled trapezoid */
+    clip-path: polygon(14px 0%, calc(100% - 14px) 0%, 100% 100%, 0% 100%);
+    z-index: -1;
+    transition: background 0.15s ease;
+}}
+
+/* Close (x) button */
+.stTabs [data-baseweb="tab"]::after {{
+    content: "×";
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background-color: transparent;
+    color: {C_TEXT_DIM};
+    font-size: 16px;
+    font-weight: bold;
+    line-height: 16px;
+    text-align: center;
+    opacity: 0; /* hidden by default */
+    transition: opacity 0.15s ease, background-color 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}}
+.stTabs [data-baseweb="tab"]:hover::after,
+.stTabs [aria-selected="true"]::after {{
+    opacity: 1;
+}}
+.stTabs [data-baseweb="tab"]:hover::after:hover {{
+    background-color: rgba(0,0,0,0.1);
+}}
+
+/* Hover state for inactive tabs */
+.stTabs [data-baseweb="tab"]:not([aria-selected="true"]):hover {{
+    color: {C_TEXT} !important;
+    z-index: 2;
+}}
+.stTabs [data-baseweb="tab"]:not([aria-selected="true"]):hover::before {{
+    background: var(--tab-hover);
+}}
+
+/* ACTIVE TAB */
 .stTabs [aria-selected="true"] {{
-    background: linear-gradient(to right, {C_BLUE}, {C_PURPLE}) !important;
-    border-bottom: none !important;
-    color: #000000 !important;
-    font-weight: 700;
-    box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.3);
-    transform: translateY(-1px);
+    color: {C_TEXT} !important;
+    font-weight: 600;
+    z-index: 3;
+}}
+.stTabs [aria-selected="true"]::before {{
+    background: {C_SURFACE};
+    /* ensure active tab perfectly merges with the surface below it without a border */
+}}
+
+/* Hide streamlit native tab highlighters */
+.stTabs [data-baseweb="tab-highlight"],
+.stTabs [data-baseweb="tab-border"] {{
+    display: none !important;
+}}
+
+/* The content pane */
+.stTabs [data-baseweb="tab-panel"] {{
+    background: {C_SURFACE};
+    border: 1px solid {C_BORDER};
+    border-top: none; /* Managed by tab-list::before */
+    border-radius: 0 0 8px 8px; /* Tab list has the top rounded corners */
+    padding: 24px 26px;
+    position: relative;
+    z-index: 2;
+    box-shadow: 0 4px 20px -4px rgba(15, 23, 42, 0.06);
 }}
 
 /* ---- buttons ---- */
@@ -585,7 +731,7 @@ def render_sidebar() -> dict:
         st.markdown("##### 📅 Date Range")
         col1, col2 = st.columns(2)
         default_end = date.today() - timedelta(days=1)
-        default_start = default_end - timedelta(days=900)
+        default_start = default_end - timedelta(days=1500)
         with col1:
             start_date = st.date_input("Start", value=default_start)
         with col2:
@@ -594,25 +740,43 @@ def render_sidebar() -> dict:
         st.markdown("---")
 
         with st.expander("🧠 Model Parameters", expanded=False):
-            seq_len = st.slider("Sequence Length", 10, 120, 60, step=5)
-            epochs = st.slider("Epochs", 1, 100, 15)
-            batch_size = st.select_slider("Batch Size", options=[16, 32, 64, 128, 256], value=64)
-            hidden_size = st.select_slider("Hidden Size", options=[32, 64, 128, 256], value=64)
+            seq_len = st.slider("Sequence Length", 10, 120, 30, step=5)
+            epochs = st.slider("Epochs", 1, 100, 30)
+            batch_size = st.select_slider("Batch Size", options=[16, 32, 64, 128, 256], value=32)
+            hidden_size = st.select_slider("Hidden Size", options=[32, 64, 128, 256], value=128)
             num_layers = st.slider("LSTM Layers", 1, 4, 2)
-            dropout = st.slider("Dropout", 0.0, 0.5, 0.2, step=0.05)
+            dropout = st.slider("Dropout", 0.0, 0.5, 0.15, step=0.05)
             learning_rate = st.select_slider(
                 "Learning Rate",
                 options=[0.0001, 0.0005, 0.001, 0.005, 0.01],
                 value=0.001,
                 format_func=lambda x: f"{x:.4f}",
             )
-            horizon = st.slider("Prediction Horizon (days)", 1, 30, 5)
-            cls_threshold = st.slider("Classification Threshold", 0.0, 0.05, 0.01, step=0.005)
+            horizon = st.slider("Prediction Horizon (days)", 1, 30, 10)
+            cls_threshold = st.slider("Classification Threshold", 0.0, 0.05, 0.02, step=0.005)
+            use_saved = st.checkbox(
+                "Use saved model (skip training)", value=False,
+                help="Load the last trained model for this ticker from disk and run "
+                     "inference + backtest over the whole selected date range without "
+                     "retraining. Note: days the saved model was trained on are not "
+                     "out-of-sample.")
 
         with st.expander("💰 Backtest Parameters", expanded=False):
             initial_capital = st.number_input("Initial Capital ($)", value=10000.0, step=1000.0, min_value=100.0)
-            signal_threshold = st.slider("Signal Threshold", 0.0, 1.0, 0.5, step=0.05)
+            signal_threshold = st.slider("Signal Threshold", 0.0, 1.0, 0.6, step=0.05)
             risk_free_rate = st.slider("Risk-Free Rate", 0.0, 0.10, 0.02, step=0.005, format="%.3f")
+            commission_bps = st.number_input(
+                "Commission per side (%)", value=0.05, step=0.01, min_value=0.0, max_value=1.0,
+                help="Charged on trade value on both buy and sell. 0.05% is a "
+                     "conservative estimate for a retail broker.")
+            slippage_bps = st.number_input(
+                "Slippage per side (%)", value=0.05, step=0.01, min_value=0.0, max_value=1.0,
+                help="Fills are assumed at close ± this fraction (worse for you on both sides).")
+            use_atr_risk = st.checkbox(
+                "ATR position sizing & stops", value=False,
+                help="Size positions so a stop-out risks 2% of capital, with the stop "
+                     "at 2×ATR and take-profit at 3×ATR from entry, instead of the "
+                     "fixed 90%-of-cash / +3%/−12% rules.")
 
         sec_email = st.text_input("SEC User-Agent Email", value="", help="Required for fundamental data")
 
@@ -636,6 +800,10 @@ def render_sidebar() -> dict:
         "initial_capital": initial_capital,
         "signal_threshold": signal_threshold,
         "risk_free_rate": risk_free_rate,
+        "commission_pct": commission_bps / 100.0,
+        "slippage_pct": slippage_bps / 100.0,
+        "use_atr_risk": use_atr_risk,
+        "use_saved": use_saved,
         "sec_email": sec_email.strip(),
         "run": run_clicked,
     }
@@ -980,6 +1148,49 @@ def render_prediction(history: dict, probabilities: np.ndarray, actuals: np.ndar
 
     st.markdown("")
 
+    # --- Classification diagnostics ---
+    _info_header("🧪 Classification Diagnostics",
+                 "Accuracy alone can hide a model that always predicts the majority class. "
+                 "<strong>Precision</strong> = of the days the model called UP, how many really rose. "
+                 "<strong>Recall</strong> = of the days that really rose, how many the model caught. "
+                 "<strong>F1</strong> balances the two. <strong>ROC-AUC</strong> measures ranking skill "
+                 "across all thresholds (0.5 = random guessing, 1.0 = perfect).")
+    precision = precision_score(actuals, predictions_binary, zero_division=0) * 100
+    recall = recall_score(actuals, predictions_binary, zero_division=0) * 100
+    f1 = f1_score(actuals, predictions_binary, zero_division=0) * 100
+    auc = roc_auc_score(actuals, probabilities) if len(np.unique(actuals)) > 1 else None
+
+    d1, d2, d3, d4 = st.columns(4)
+    d1.metric("Precision", f"{precision:.1f}%",
+              help="Of all BUY signals, the percentage where the price actually rose above the threshold.")
+    d2.metric("Recall", f"{recall:.1f}%",
+              help="Of all days the price actually rose above the threshold, the percentage the model flagged.")
+    d3.metric("F1 Score", f"{f1:.1f}%",
+              help="Harmonic mean of precision and recall — a single balanced quality score.")
+    d4.metric("ROC-AUC", f"{auc:.3f}" if auc is not None else "N/A",
+              help="Threshold-independent ranking skill. 0.5 = coin flip, above ~0.55 shows real edge in financial data.")
+
+    st.markdown("")
+
+    cm = confusion_matrix(actuals, predictions_binary, labels=[0, 1])
+    cm_col, _ = st.columns([2, 1])
+    with cm_col:
+        fig_cm = go.Figure(go.Heatmap(
+            z=cm,
+            x=["Predicted DOWN", "Predicted UP"],
+            y=["Actual DOWN", "Actual UP"],
+            colorscale=[[0.0, "#f8fafc"], [1.0, "#818cf8"]],
+            showscale=False,
+            text=cm, texttemplate="%{text}",
+            textfont=dict(size=20, color=C_TEXT),
+            hovertemplate="%{y} / %{x}: %{z} samples<extra></extra>",
+        ))
+        _apply_layout(fig_cm, height=300, title_text="Confusion Matrix",
+                      yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig_cm, use_container_width=True)
+
+    st.markdown("")
+
     # --- Probability distribution ---
     _info_header("🔬 Prediction Probability Distribution",
                  "Histogram showing how the model's predicted probabilities are distributed across all test samples. "
@@ -1297,8 +1508,14 @@ def _score_stock(closes: pd.Series) -> dict:
     }
 
 
-def _ai_score_stock(ticker: str, raw_data: pd.DataFrame, model: torch.nn.Module, seq_len: int) -> dict:
-    """Compute buy score using the trained LSTM model."""
+_SCREENER_CACHE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "screener_results.csv")
+
+
+def _ai_score_stock(ticker: str, raw_data: pd.DataFrame, model: torch.nn.Module,
+                    seq_len: int, rf_model=None, gb_model=None,
+                    prob_bounds=None) -> dict:
+    """Compute buy score using the trained ensemble (LSTM + RF + GB)."""
     if not isinstance(raw_data.columns, pd.MultiIndex):
         return None
         
@@ -1322,7 +1539,12 @@ def _ai_score_stock(ticker: str, raw_data: pd.DataFrame, model: torch.nn.Module,
         ticker_df = calculate_technical_indicators(ticker_df)
     except Exception:
         return None
-        
+
+    # Sector_Return is only produced by fetch_ohlcv, not the batch download —
+    # fill it with 0 so the feature matrix matches the model's input size.
+    if "Sector_Return" not in ticker_df.columns:
+        ticker_df["Sector_Return"] = 0.0
+
     ticker_df = ticker_df.dropna()
     if len(ticker_df) < seq_len:
         return None
@@ -1338,8 +1560,23 @@ def _ai_score_stock(ticker: str, raw_data: pd.DataFrame, model: torch.nn.Module,
     device = next(model.parameters()).device
     model.eval()
     with torch.no_grad():
-        prob = model(X.to(device)).item()
-        
+        lstm_prob = model(X.to(device)).item()
+
+    # Weighted ensemble matching the analyzer pipeline (LSTM 0.1, RF 0.3, GB 0.6)
+    prob = lstm_prob * 0.1
+    total_w = 0.1
+    X_tab = scaled[-1:].astype(np.float32)
+    if rf_model is not None and getattr(rf_model, "n_features_in_", 0) == X_tab.shape[1]:
+        prob += rf_model.predict_proba(X_tab)[0, 1] * 0.3
+        total_w += 0.3
+    if gb_model is not None and getattr(gb_model, "n_features_in_", 0) == X_tab.shape[1]:
+        prob += gb_model.predict_proba(X_tab)[0, 1] * 0.6
+        total_w += 0.6
+    prob /= total_w
+
+    if prob_bounds is not None:
+        prob = float(normalize_probabilities(np.array([prob]), tuple(prob_bounds))[0])
+
     composite = prob * 100
     
     # Gather technicals for the table
@@ -1451,9 +1688,14 @@ def render_screener():
         valid_tickers = [t for t in tickers_list if t in all_tickers]
         
         model = None
+        rf_model = gb_model = prob_bounds = None
         seq_len = 60
         if scoring_mode == "AI Model (LSTM)":
-            model = st.session_state.results["model"]
+            results_state = st.session_state.results
+            model = results_state["model"]
+            rf_model = results_state.get("rf_model")
+            gb_model = results_state.get("gb_model")
+            prob_bounds = results_state.get("prob_bounds")
             seq_len = st.session_state.last_params.get("sequence_length", 60)
 
         for i, ticker in enumerate(valid_tickers):
@@ -1464,7 +1706,9 @@ def render_screener():
                 )
             try:
                 if scoring_mode == "AI Model (LSTM)":
-                    result = _ai_score_stock(ticker, raw, model, seq_len)
+                    result = _ai_score_stock(ticker, raw, model, seq_len,
+                                             rf_model=rf_model, gb_model=gb_model,
+                                             prob_bounds=prob_bounds)
                 else:
                     if ticker in close_data.columns:
                         result = _score_stock(close_data[ticker])
@@ -1489,8 +1733,28 @@ def render_screener():
         results_df = pd.DataFrame(scored)
         st.session_state.screener_results = results_df
 
+        # Persist to disk so results survive app restarts
+        try:
+            results_df.to_csv(_SCREENER_CACHE, index=False)
+        except Exception as exc:
+            logger.warning("Could not save screener results: %s", exc)
+
     # --- Display results ---
     results_df = st.session_state.screener_results
+
+    # Fall back to the last scan saved on disk
+    if results_df is None and os.path.exists(_SCREENER_CACHE):
+        try:
+            results_df = pd.read_csv(_SCREENER_CACHE)
+            st.session_state.screener_results = results_df
+            from datetime import datetime as _dt
+            saved_at = _dt.fromtimestamp(os.path.getmtime(_SCREENER_CACHE))
+            st.caption(f"📂 Showing last saved scan from "
+                       f"{saved_at.strftime('%b %d, %Y %H:%M')} — "
+                       f"click **Scan S&P 500** to refresh.")
+        except Exception:
+            results_df = None
+
     if results_df is None:
         st.markdown(
             f"<div style='text-align:center; padding:60px 20px; color:{C_TEXT_DIM};'>"
@@ -1738,6 +2002,74 @@ def run_pipeline(params: dict) -> dict | None:
     labels_clean = df["_target"].values.astype(np.float32)
     results["df_clean"] = df
 
+    # 6.5 — Saved-model fast path: load artifacts and skip training
+    if params.get("use_saved"):
+        saved = load_artifacts(params["ticker"])
+        if saved is None:
+            st.warning("No saved model found for this ticker — training a new one.")
+        else:
+            meta = saved["meta"]
+            feat_cols = [c for c in meta.get("feature_columns", FEATURE_COLUMNS)
+                         if c in df.columns]
+            seq_len = int(meta.get("params", {}).get("sequence_length",
+                                                     params["sequence_length"]))
+            if saved["model"].lstm.input_size != len(feat_cols):
+                st.warning("Saved model's feature set doesn't match current data — retraining.")
+            elif len(df) <= seq_len + 1:
+                st.error("Not enough data for the saved model's sequence length. "
+                         "Widen the date range.")
+                return None
+            else:
+                progress_bar.progress(70, text="70% - 📦 Loaded saved model — running inference …")
+                scaled_all = saved["scaler"].transform(df[feat_cols])
+                full_ds = StockDataset(scaled_all, labels_clean, sequence_length=seq_len)
+                full_loader = DataLoader(full_ds, batch_size=params["batch_size"], shuffle=False)
+                try:
+                    probabilities, actuals = evaluate_model(
+                        saved["model"], full_loader, device=device,
+                        rf_model=saved["rf_model"], gb_model=saved["gb_model"],
+                        lstm_weight=0.1, rf_weight=0.3, gb_weight=0.6,
+                    )
+                except Exception as exc:
+                    st.error(f"Inference with saved model failed: {exc}")
+                    return None
+
+                prob_bounds = tuple(meta.get("prob_bounds", (0.0, 1.0)))
+                probabilities = normalize_probabilities(probabilities, prob_bounds)
+                results["history"] = meta.get("history", {"train_losses": [], "val_losses": []})
+                results["probabilities"] = probabilities
+                results["actuals"] = actuals
+                results["model"] = saved["model"]
+                results["rf_model"] = saved["rf_model"]
+                results["gb_model"] = saved["gb_model"]
+                results["prob_bounds"] = prob_bounds
+                _log_admin(f"✅ Used saved model (saved {meta.get('saved_at')}) — training skipped",
+                           "success")
+
+                progress_bar.progress(95, text="95% - 📈 Running backtest …")
+                bt_close = df["Close"].iloc[seq_len: seq_len + len(probabilities)]
+                bt_dates = df.index[seq_len: seq_len + len(probabilities)]
+                try:
+                    portfolio_df = run_backtest(
+                        close_prices=bt_close, predictions=probabilities, dates=bt_dates,
+                        initial_capital=params["initial_capital"],
+                        signal_threshold=params["signal_threshold"], trend_data=df,
+                        commission_pct=params["commission_pct"],
+                        slippage_pct=params["slippage_pct"],
+                        use_atr_risk=params["use_atr_risk"],
+                    )
+                except Exception as exc:
+                    st.error(f"Backtest failed: {exc}")
+                    return None
+
+                results["portfolio"] = portfolio_df
+                results["metrics"] = calculate_performance_metrics(
+                    portfolio_df, initial_capital=params["initial_capital"],
+                    risk_free_rate=params["risk_free_rate"])
+                _log_admin("✅ Backtest complete (saved model)!", "success")
+                progress_bar.progress(100, text="100% - ✅ Analysis Complete (saved model)!")
+                return results
+
     # 7 — Train / test split
     train_end = int(len(df) * 0.8)
     msg = f"Train: {train_end} rows  |  Test: {len(df) - train_end} rows"
@@ -1758,8 +2090,18 @@ def run_pipeline(params: dict) -> dict | None:
     seq_len = params["sequence_length"]
 
     # 9 — DataLoaders
-    train_ds = StockDataset(scaled_train, train_labels, sequence_length=seq_len)
-    test_ds = StockDataset(scaled_test, test_labels, sequence_length=seq_len)
+    if len(scaled_train) <= seq_len or len(scaled_test) <= seq_len:
+        st.error(f"Not enough data for the chosen Sequence Length ({seq_len}). "
+                 f"Train rows: {len(scaled_train)}, Test rows: {len(scaled_test)}. "
+                 f"Please select a wider date range or decrease the Sequence Length.")
+        return None
+
+    try:
+        train_ds = StockDataset(scaled_train, train_labels, sequence_length=seq_len)
+        test_ds = StockDataset(scaled_test, test_labels, sequence_length=seq_len)
+    except ValueError as exc:
+        st.error(f"Dataset creation failed: {exc}. Try a wider date range.")
+        return None
 
     if len(train_ds) == 0 or len(test_ds) == 0:
         st.error("Datasets empty after sequencing. Need more data or shorter sequence length.")
@@ -1804,28 +2146,53 @@ def run_pipeline(params: dict) -> dict | None:
     _log_admin(msg, "success")
 
     # 10.5 — Train Random Forest Ensemble
-    progress_bar.progress(85, text="85% - 🌲 Training Random Forest Ensemble …")
+    progress_bar.progress(82, text="82% - 🌲 Training Random Forest Ensemble …")
     if True:
         try:
-            rf_model = train_random_forest(train_ds, n_estimators=100)
+            rf_model = train_random_forest(train_ds, n_estimators=500, max_depth=10, min_samples_leaf=15)
             results["rf_model"] = rf_model
         except Exception as exc:
             st.error(f"Random Forest Training failed: {exc}")
             return None
 
+    # 10.6 — Train Gradient Boosting
+    progress_bar.progress(88, text="88% - 🚀 Training Gradient Boosting …")
+    if True:
+        try:
+            gb_model = train_gradient_boosting(train_ds, n_estimators=400, max_depth=3, learning_rate=0.03, subsample=0.8)
+            results["gb_model"] = gb_model
+        except Exception as exc:
+            st.error(f"Gradient Boosting Training failed: {exc}")
+            return None
+
     # 11 — Evaluate
-    progress_bar.progress(90, text="90% - 🔍 Evaluating ensemble model …")
+    progress_bar.progress(92, text="92% - 🔍 Evaluating 3-model ensemble …")
     if True:
         try:
             probabilities, actuals = evaluate_model(
-                model, test_loader, device=device, rf_model=rf_model, rf_weight=0.5
+                model, test_loader, device=device,
+                rf_model=rf_model, gb_model=gb_model,
+                lstm_weight=0.1, rf_weight=0.3, gb_weight=0.6,
             )
         except Exception as exc:
             st.error(f"Evaluation failed: {exc}")
             return None
+
+    # Normalize probabilities to [0, 1] using bounds fitted on TRAINING-set
+    # predictions only — deriving them from the test set would be look-ahead bias.
+    train_eval_loader = DataLoader(train_ds, batch_size=params["batch_size"], shuffle=False)
+    train_probs, _ = evaluate_model(
+        model, train_eval_loader, device=device,
+        rf_model=rf_model, gb_model=gb_model,
+        lstm_weight=0.1, rf_weight=0.3, gb_weight=0.6,
+    )
+    prob_bounds = compute_probability_bounds(train_probs)
+    probabilities = normalize_probabilities(probabilities, prob_bounds)
+
     results["probabilities"] = probabilities
     results["actuals"] = actuals
     results["model"] = model
+    results["prob_bounds"] = prob_bounds
 
     # 12 — Backtest
     progress_bar.progress(95, text="95% - 📈 Running backtest …")
@@ -1842,6 +2209,10 @@ def run_pipeline(params: dict) -> dict | None:
                 dates=bt_dates,
                 initial_capital=params["initial_capital"],
                 signal_threshold=params["signal_threshold"],
+                trend_data=df,
+                commission_pct=params["commission_pct"],
+                slippage_pct=params["slippage_pct"],
+                use_atr_risk=params["use_atr_risk"],
             )
         except Exception as exc:
             st.error(f"Backtest failed: {exc}")
@@ -1858,8 +2229,21 @@ def run_pipeline(params: dict) -> dict | None:
     msg = "✅ Backtest complete!"
     _log_admin(msg, "success")
 
+    # Persist trained artifacts so future runs can skip training
+    try:
+        feat_cols = [c for c in FEATURE_COLUMNS if c in df.columns]
+        save_artifacts(
+            params["ticker"], model, rf_model, gb_model, scaler,
+            params=params, history=history, prob_bounds=prob_bounds,
+            feature_columns=feat_cols,
+        )
+        _log_admin("💾 Model artifacts saved — enable 'Use saved model' to skip "
+                   "training next time.", "info")
+    except Exception as exc:
+        _log_admin(f"⚠ Could not save model artifacts: {exc}", "warning")
+
     progress_bar.progress(100, text="100% - ✅ Analysis Complete!")
-    
+
     return results
 
 

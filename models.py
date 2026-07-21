@@ -17,7 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from torch import nn
 
 # --- STREAMLIT + PYTORCH BUG FIX ---
@@ -232,6 +232,9 @@ def train_model(
     model = model.to(device)
     criterion = nn.BCELoss()
     optimiser = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimiser, mode='min', factor=0.5, patience=3, min_lr=1e-6
+    )
 
     train_losses: List[float] = []
     val_losses: List[float] = []
@@ -265,6 +268,7 @@ def train_model(
             predictions = model(batch_X).squeeze(-1)  # (batch,)
             loss = criterion(predictions, batch_y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimiser.step()
 
             epoch_loss += loss.item()
@@ -272,6 +276,7 @@ def train_model(
 
         mean_train_loss = epoch_loss / max(num_batches, 1)
         train_losses.append(mean_train_loss)
+        scheduler.step(mean_train_loss)
 
         # ----- Validation phase -----
         mean_val_loss: Optional[float] = None
@@ -340,21 +345,15 @@ def evaluate_model(
     test_loader: DataLoader,
     device: str = "cpu",
     rf_model: Optional[RandomForestClassifier] = None,
-    rf_weight: float = 0.5,
+    gb_model: Optional[GradientBoostingClassifier] = None,
+    lstm_weight: float = 0.2,
+    rf_weight: float = 0.4,
+    gb_weight: float = 0.4,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """Run inference on a test set and collect predictions vs ground truth.
 
-    Args:
-        model: A trained ``nn.Module``.
-        test_loader: ``DataLoader`` yielding ``(X, y)`` test batches.
-        device: PyTorch device string.
-        rf_model: Optional trained RandomForestClassifier for ensembling.
-        rf_weight: Weight applied to the RF model's probabilities (0.0 to 1.0).
-
-    Returns:
-        A tuple ``(probabilities, actuals)`` where both are 1-D NumPy arrays.
-        *probabilities* contains the raw sigmoid outputs and *actuals*
-        contains the binary ground-truth labels.
+    Uses a 3-model ensemble: LSTM + Random Forest + Gradient Boosting.
+    Weights are normalized to sum to 1.0 based on which models are provided.
     """
     model = model.to(device)
     model.eval()
@@ -368,15 +367,25 @@ def evaluate_model(
         for batch_X, batch_y in test_loader:
             batch_X = batch_X.to(device)
             lstm_preds = model(batch_X).squeeze(-1).cpu().numpy()  # (batch,)
-            
-            # Incorporate Random Forest ensemble if provided
+            X_tabular = batch_X[:, -1, :].cpu().numpy()
+
+            # Build weighted ensemble
+            total_weight = lstm_weight
+            preds = lstm_preds * lstm_weight
+
             if rf_model is not None:
-                # Extract the last timestep feature vector for RF
-                X_rf = batch_X[:, -1, :].cpu().numpy()
-                rf_preds = rf_model.predict_proba(X_rf)[:, 1]
-                preds = (lstm_preds * (1.0 - rf_weight)) + (rf_preds * rf_weight)
-            else:
-                preds = lstm_preds
+                rf_preds = rf_model.predict_proba(X_tabular)[:, 1]
+                preds = preds + rf_preds * rf_weight
+                total_weight += rf_weight
+
+            if gb_model is not None:
+                gb_preds = gb_model.predict_proba(X_tabular)[:, 1]
+                preds = preds + gb_preds * gb_weight
+                total_weight += gb_weight
+
+            # Normalize
+            if total_weight > 0:
+                preds = preds / total_weight
 
             all_probs.append(preds)
             all_actuals.append(batch_y.numpy())
@@ -388,23 +397,58 @@ def evaluate_model(
     return probabilities, actuals
 
 
+def compute_probability_bounds(
+    probs: np.ndarray,
+    lower_pct: float = 5.0,
+    upper_pct: float = 95.0,
+) -> Tuple[float, float]:
+    """Derive normalization bounds from a set of ensemble probabilities.
+
+    Intended to be called on TRAINING-set predictions so that test-set
+    normalization uses no future information (no look-ahead bias).
+    Percentiles are used instead of min/max for robustness to outliers.
+    """
+    lo, hi = np.percentile(probs, [lower_pct, upper_pct])
+    if hi - lo < 1e-8:
+        return 0.0, 1.0
+    return float(lo), float(hi)
+
+
+def normalize_probabilities(
+    probs: np.ndarray,
+    bounds: Tuple[float, float],
+) -> np.ndarray:
+    """Rescale probabilities to [0, 1] using pre-computed bounds, clipping
+    values that fall outside the range the bounds were fitted on."""
+    lo, hi = bounds
+    if hi - lo < 1e-8:
+        return probs
+    return np.clip((probs - lo) / (hi - lo), 0.0, 1.0)
+
+
 def train_random_forest(
     dataset: StockDataset,
     n_estimators: int = 100,
-    max_depth: int = 5,
+    max_depth: Optional[int] = None,
+    min_samples_leaf: int = 5,
     random_state: int = 42
 ) -> RandomForestClassifier:
     """Train a Random Forest classifier using the dataset's tabular features.
     
     Extracts the features corresponding to the end of each LSTM sequence window.
+
+    Note: evaluate_model feeds the tree models the LAST row of each window
+    (``features[i + seq_len - 1]``), so training must pair that same row with
+    ``labels[i + seq_len]`` to avoid a one-day train/eval skew.
     """
     valid_len = len(dataset)
-    X = dataset.features[dataset.sequence_length : dataset.sequence_length + valid_len]
+    X = dataset.features[dataset.sequence_length - 1 : dataset.sequence_length - 1 + valid_len]
     y = dataset.labels[dataset.sequence_length : dataset.sequence_length + valid_len]
-    
+
     rf = RandomForestClassifier(
         n_estimators=n_estimators,
         max_depth=max_depth,
+        min_samples_leaf=min_samples_leaf,
         random_state=random_state,
         n_jobs=-1
     )
@@ -412,3 +456,34 @@ def train_random_forest(
     rf.fit(X, y)
     logger.info("Random Forest training complete.")
     return rf
+
+
+def train_gradient_boosting(
+    dataset: StockDataset,
+    n_estimators: int = 300,
+    max_depth: int = 4,
+    learning_rate: float = 0.05,
+    subsample: float = 0.8,
+    random_state: int = 42
+) -> GradientBoostingClassifier:
+    """Train a Gradient Boosting classifier using the dataset's tabular features.
+
+    Uses the same window-end feature row as evaluate_model (see train_random_forest).
+    """
+    valid_len = len(dataset)
+    X = dataset.features[dataset.sequence_length - 1 : dataset.sequence_length - 1 + valid_len]
+    y = dataset.labels[dataset.sequence_length : dataset.sequence_length + valid_len]
+    
+    gb = GradientBoostingClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        learning_rate=learning_rate,
+        subsample=subsample,
+        random_state=random_state,
+        min_samples_leaf=10,
+        max_features='sqrt',
+    )
+    logger.info("Training Gradient Boosting model (n_estimators=%d, lr=%.3f)...", n_estimators, learning_rate)
+    gb.fit(X, y)
+    logger.info("Gradient Boosting training complete.")
+    return gb
