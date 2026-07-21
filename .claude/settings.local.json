@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python test_multi_stock.py)",
+      "Skill(dataviz)",
+      "PowerShell(python -m pytest tests/ -v --tb=short)",
+      "PowerShell(python -m pip install pytest --quiet; python -m pytest tests/ -v --tb=short)",
+      "PowerShell(Get-Content \"C:\\\\Users\\\\anish\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-anish-stock-analyzer-project\\\\d220c4a4-8d3e-4471-abc5-6e2d291ddb77\\\\tasks\\\\br6sgxch6.output\" | Select-String -Pattern \"Running|Win Rate|No trades|Status:|SUMMARY|Stocks|round-trips|AGGREGATE|Avg |Mean |Ticker|----|^  [A-Z]{1,5} \" | ForEach-Object { $_.Line })",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app.py', encoding='utf-8'\\).read\\(\\)\\)\")",
+      "Skill(run)",
+      "Bash(python -c \"import streamlit; print\\(streamlit.__version__\\)\")",
+      "Bash(python -c \"import playwright\")",
+      "Bash(command -v chromium-cli)",
+      "Bash(command -v chromium-cli.cmd)",
+      "Read(//c/Users/anish/.claude/**)",
+      "Bash(where chromium-cli *)",
+      "Bash(curl -sf http://localhost:8534)",
+      "Bash(break)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8534)",
+      "Skill(claude-in-chrome)"
+    ]
+  }
+}
